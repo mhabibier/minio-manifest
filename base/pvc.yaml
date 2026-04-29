@@ -1,0 +1,19 @@
+# PersistentVolumeClaim for MinIO data
+# Setara dengan volume `minio_data:/data` di Docker Compose.
+
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: minio-data-pvc
+  namespace: minio
+  labels:
+    app.kubernetes.io/name:      minio
+    app.kubernetes.io/component: storage
+spec:
+  accessModes:
+    - ReadWriteOnce   # MinIO single-node: hanya 1 pod yang mount volume ini
+  resources:
+    requests:
+      storage: 10Gi   # Sesuaikan kapasitas dengan kebutuhan
+  # storageClassName: ""  # Uncomment dan isi jika perlu storage class spesifik
+  #                       # Kosongkan untuk menggunakan default StorageClass cluster

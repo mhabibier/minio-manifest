@@ -1,0 +1,9 @@
+# Namespace for MinIO (S3-compatible object storage)
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: minio
+  labels:
+    app.kubernetes.io/name:      minio
+    app.kubernetes.io/component: namespace

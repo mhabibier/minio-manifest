@@ -1,0 +1,171 @@
+# StatefulSet for MinIO
+#
+# MinIO dijalankan sebagai StatefulSet (bukan Deployment) karena:
+# - Stateful storage — data harus tetap ada saat pod restart
+# - Init container menggantikan container `minio-init` di Docker Compose
+#   yang membuat bucket 'books' dengan public access
+#
+# Init container berjalan sekali sebelum MinIO main container start.
+# Jika bucket sudah ada, mc mb --ignore-existing akan skip tanpa error.
+
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: minio
+  namespace: minio
+  labels:
+    app.kubernetes.io/name:      minio
+    app.kubernetes.io/component: object-storage
+    app.kubernetes.io/version:   "latest"
+spec:
+  serviceName: minio-headless   # headless service untuk StatefulSet DNS
+  replicas: 1                   # Single-node MinIO (tidak distributed)
+  selector:
+    matchLabels:
+      app: minio
+  template:
+    metadata:
+      labels:
+        app: minio
+        app.kubernetes.io/name:      minio
+        app.kubernetes.io/component: object-storage
+    spec:
+      serviceAccountName: minio-sa
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser:    1000
+        runAsGroup:   1000
+        fsGroup:      1000
+        seccompProfile:
+          type: RuntimeDefault
+      terminationGracePeriodSeconds: 30
+      imagePullSecrets:
+        - name: harbor-secret
+
+      # ── Init Container — membuat bucket 'books' (setara minio-init di Docker Compose) ──
+      initContainers:
+        - name: minio-init
+          image: quay.io/minio/mc:latest
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem:   false  # mc butuh write ke /tmp
+            runAsNonRoot:             true
+            runAsUser:                1000
+            capabilities:
+              drop: ["ALL"]
+          # mc perlu akses ke endpoint MinIO utama — menunggu sampai MinIO siap
+          # Namun di init container, MinIO utama belum jalan.
+          # Solusi: gunakan script retry dengan loop sampai MinIO ready.
+          command:
+            - sh
+            - -c
+            - |
+              echo "[minio-init] Waiting for MinIO to be ready..."
+              until mc alias set local http://localhost:9000 "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD"; do
+                echo "[minio-init] MinIO not ready yet, retrying in 3s..."
+                sleep 3
+              done
+              echo "[minio-init] Creating bucket 'books'..."
+              mc mb --ignore-existing local/books
+              echo "[minio-init] Setting public read access on bucket 'books'..."
+              mc anonymous set public local/books
+              echo "[minio-init] Bucket 'books' ready with public access."
+          env:
+            - name: MINIO_ROOT_USER
+              valueFrom:
+                secretKeyRef:
+                  name: minio-secret
+                  key:  MINIO_ROOT_USER
+            - name: MINIO_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: minio-secret
+                  key:  MINIO_ROOT_PASSWORD
+          resources:
+            requests:
+              cpu:    "50m"
+              memory: "64Mi"
+            limits:
+              cpu:    "200m"
+              memory: "256Mi"
+
+      # ── Main Container — MinIO server ─────────────────────────────────────────
+      containers:
+        - name: minio
+          image: quay.io/minio/minio:latest
+          imagePullPolicy: IfNotPresent
+          args:
+            - server
+            - /data
+            - --console-address
+            - ":9001"
+          ports:
+            - name:          s3-api
+              containerPort: 9000
+              protocol:      TCP
+            - name:          console
+              containerPort: 9001
+              protocol:      TCP
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem:   false  # MinIO butuh write ke /data dan temp dirs
+            runAsNonRoot:             true
+            runAsUser:                1000
+            capabilities:
+              drop: ["ALL"]
+          env:
+            - name: MINIO_ROOT_USER
+              valueFrom:
+                secretKeyRef:
+                  name: minio-secret
+                  key:  MINIO_ROOT_USER
+            - name: MINIO_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: minio-secret
+                  key:  MINIO_ROOT_PASSWORD
+          startupProbe:
+            httpGet:
+              path: /minio/health/live
+              port: s3-api
+            initialDelaySeconds: 10
+            periodSeconds:       5
+            failureThreshold:    12   # 12 × 5s = 60s max startup
+            timeoutSeconds:      3
+          livenessProbe:
+            httpGet:
+              path: /minio/health/live
+              port: s3-api
+            initialDelaySeconds: 0
+            periodSeconds:       30
+            timeoutSeconds:      5
+            failureThreshold:    3
+          readinessProbe:
+            httpGet:
+              path: /minio/health/ready
+              port: s3-api
+            initialDelaySeconds: 0
+            periodSeconds:       10
+            timeoutSeconds:      3
+            failureThreshold:    3
+            successThreshold:    1
+          resources:
+            requests:
+              cpu:    "100m"
+              memory: "256Mi"
+            limits:
+              cpu:    "1000m"
+              memory: "1Gi"
+          volumeMounts:
+            - name:      minio-data
+              mountPath: /data   # Data bucket MinIO
+            - name:      tmp
+              mountPath: /tmp
+      volumes:
+        - name: minio-data
+          persistentVolumeClaim:
+            claimName: minio-data-pvc
+        - name: tmp
+          emptyDir: {}
