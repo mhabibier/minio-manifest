@@ -35,48 +35,23 @@ spec:
       imagePullSecrets:
         - name: harbor-secret
       initContainers:
-        - name: minio-init
-          image: quay.io/minio/mc:latest
+        - name: fix-permissions
+          image: quay.io/minio/minio:latest
           imagePullPolicy: IfNotPresent
           securityContext:
-            allowPrivilegeEscalation: false
-            readOnlyRootFilesystem:   false
-            runAsNonRoot:             true
-            runAsUser:                1000
-            capabilities:
-              drop: ["ALL"]
+            runAsUser:  0
+            runAsGroup: 0
+            runAsNonRoot: false
           command:
             - sh
             - -c
             - |
-              echo "[minio-init] Waiting for MinIO to be ready..."
-              until mc alias set local http://localhost:9000 "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD"; do
-                echo "[minio-init] MinIO not ready yet, retrying in 3s..."
-                sleep 3
-              done
-              echo "[minio-init] Creating bucket 'books'..."
-              mc mb --ignore-existing local/books
-              echo "[minio-init] Setting public read access on bucket 'books'..."
-              mc anonymous set public local/books
-              echo "[minio-init] Bucket 'books' ready with public access."
-          env:
-            - name: MINIO_ROOT_USER
-              valueFrom:
-                secretKeyRef:
-                  name: minio-secret
-                  key:  MINIO_ROOT_USER
-            - name: MINIO_ROOT_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: minio-secret
-                  key:  MINIO_ROOT_PASSWORD
-          resources:
-            requests:
-              cpu:    "50m"
-              memory: "64Mi"
-            limits:
-              cpu:    "200m"
-              memory: "256Mi"
+              echo "==> Fixing ownership on data directory..."
+              chown -R 1000:1000 /data
+              echo "==> Permissions fixed."
+          volumeMounts:
+            - name:      minio-data
+              mountPath: /data
       containers:
         - name: minio
           image: quay.io/minio/minio:latest

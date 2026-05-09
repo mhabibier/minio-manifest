@@ -1,0 +1,74 @@
+# Job to initialize MinIO bucket after the server is running.
+
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: minio-init-bucket
+  namespace: minio
+  labels:
+    app.kubernetes.io/name:      minio
+    app.kubernetes.io/component: init-bucket
+spec:
+  backoffLimit: 5
+  ttlSecondsAfterFinished: 300
+  template:
+    metadata:
+      labels:
+        app: minio-init
+    spec:
+      restartPolicy: OnFailure
+      securityContext:
+        runAsNonRoot: true
+        runAsUser:    1000
+        runAsGroup:   1000
+        seccompProfile:
+          type: RuntimeDefault
+      imagePullSecrets:
+        - name: harbor-secret
+      containers:
+        - name: mc
+          image: quay.io/minio/mc:latest
+          imagePullPolicy: IfNotPresent
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem:   false
+            runAsNonRoot:             true
+            runAsUser:                1000
+            capabilities:
+              drop: ["ALL"]
+          command:
+            - sh
+            - -c
+            - |
+              echo "[minio-init] Waiting for MinIO to be ready..."
+              until mc alias set local http://minio.minio.svc.cluster.local:9000 \
+                "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD" 2>/dev/null; do
+                echo "[minio-init] MinIO not ready yet, retrying in 5s..."
+                sleep 5
+              done
+
+              echo "[minio-init] Creating bucket 'books'..."
+              mc mb --ignore-existing local/books
+
+              echo "[minio-init] Setting public read access on bucket 'books'..."
+              mc anonymous set public local/books
+
+              echo "[minio-init] ✅ Bucket 'books' ready with public access."
+          env:
+            - name: MINIO_ROOT_USER
+              valueFrom:
+                secretKeyRef:
+                  name: minio-secret
+                  key:  MINIO_ROOT_USER
+            - name: MINIO_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: minio-secret
+                  key:  MINIO_ROOT_PASSWORD
+          resources:
+            requests:
+              cpu:    "50m"
+              memory: "64Mi"
+            limits:
+              cpu:    "200m"
+              memory: "256Mi"
