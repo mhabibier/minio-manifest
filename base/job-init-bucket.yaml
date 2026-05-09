@@ -40,20 +40,40 @@ spec:
             - sh
             - -c
             - |
-              echo "[minio-init] Waiting for MinIO to be ready..."
-              until mc alias set local http://minio.minio.svc.cluster.local:9000 \
-                "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD" 2>/dev/null; do
-                echo "[minio-init] MinIO not ready yet, retrying in 5s..."
-                sleep 5
+              set -e
+              MINIO_ENDPOINT="http://minio.minio.svc.cluster.local:9000"
+              MAX_RETRIES=30
+              RETRY_INTERVAL=5
+              RETRY_COUNT=0
+
+              echo "[minio-init] MinIO endpoint: $MINIO_ENDPOINT"
+              echo "[minio-init] Credentials user: $MINIO_ROOT_USER"
+
+              echo "[minio-init] Step 1: Waiting for MinIO health endpoint..."
+              until wget -qO- "$MINIO_ENDPOINT/minio/health/live" >/dev/null 2>&1; do
+                RETRY_COUNT=$((RETRY_COUNT + 1))
+                if [ "$RETRY_COUNT" -ge "$MAX_RETRIES" ]; then
+                  echo "[minio-init] ERROR: MinIO not reachable after $MAX_RETRIES attempts. Exiting."
+                  exit 1
+                fi
+                echo "[minio-init] MinIO not reachable (attempt $RETRY_COUNT/$MAX_RETRIES), retrying in ${RETRY_INTERVAL}s..."
+                sleep "$RETRY_INTERVAL"
               done
+              echo "[minio-init] MinIO is healthy!"
 
-              echo "[minio-init] Creating bucket 'books'..."
+              echo "[minio-init] Step 2: Setting mc alias..."
+              mc alias set local "$MINIO_ENDPOINT" "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD"
+              echo "[minio-init] Alias configured."
+
+              echo "[minio-init] Step 3: Creating bucket 'books'..."
               mc mb --ignore-existing local/books
+              echo "[minio-init] Bucket created."
 
-              echo "[minio-init] Setting public read access on bucket 'books'..."
+              echo "[minio-init] Step 4: Setting public read access..."
               mc anonymous set public local/books
+              echo "[minio-init] Public access configured."
 
-              echo "[minio-init] ✅ Bucket 'books' ready with public access."
+              echo "[minio-init] Done. Bucket 'books' is ready with public access."
           env:
             - name: MINIO_ROOT_USER
               valueFrom:
