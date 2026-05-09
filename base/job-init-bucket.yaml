@@ -40,62 +40,25 @@ spec:
             - sh
             - -c
             - |
-              MINIO_SVC="http://minio.minio.svc.cluster.local:9000"
-              MINIO_POD="http://minio-0.minio-headless.minio.svc.cluster.local:9000"
               MAX_RETRIES=30
               RETRY_INTERVAL=5
               COUNT=0
 
-              echo "=============================="
-              echo "[debug] DNS config:"
-              cat /etc/resolv.conf
-              echo "=============================="
+              echo "[minio-init] Waiting for MinIO to be ready..."
+              echo "[minio-init] Trying to set mc alias..."
 
-              echo "[debug] Testing Service DNS: $MINIO_SVC"
-              wget -q -T 5 -O /dev/null "$MINIO_SVC/minio/health/live" 2>&1 && echo "[debug] Service DNS: OK" || echo "[debug] Service DNS: FAILED"
-
-              echo "[debug] Testing Pod DNS: $MINIO_POD"
-              wget -q -T 5 -O /dev/null "$MINIO_POD/minio/health/live" 2>&1 && echo "[debug] Pod DNS: OK" || echo "[debug] Pod DNS: FAILED"
-              echo "=============================="
-
-              # Determine which endpoint works
-              ENDPOINT=""
-              if wget -q -T 5 -O /dev/null "$MINIO_SVC/minio/health/live" 2>/dev/null; then
-                ENDPOINT="$MINIO_SVC"
-                echo "[minio-init] Using Service DNS endpoint"
-              elif wget -q -T 5 -O /dev/null "$MINIO_POD/minio/health/live" 2>/dev/null; then
-                ENDPOINT="$MINIO_POD"
-                echo "[minio-init] Using Pod DNS endpoint"
-              fi
-
-              # If neither works, wait and retry
-              if [ -z "$ENDPOINT" ]; then
-                echo "[minio-init] Neither endpoint reachable. Entering retry loop..."
-                until wget -q -T 5 -O /dev/null "$MINIO_SVC/minio/health/live" 2>/dev/null || \
-                      wget -q -T 5 -O /dev/null "$MINIO_POD/minio/health/live" 2>/dev/null; do
-                  COUNT=$((COUNT + 1))
-                  if [ "$COUNT" -ge "$MAX_RETRIES" ]; then
-                    echo "[minio-init] ERROR: MinIO not reachable after $MAX_RETRIES attempts."
-                    echo "[minio-init] Last wget attempt (full output):"
-                    wget -O /dev/null "$MINIO_SVC/minio/health/live" 2>&1 || true
-                    exit 1
-                  fi
-                  echo "[minio-init] Attempt $COUNT/$MAX_RETRIES - retrying in ${RETRY_INTERVAL}s..."
-                  sleep "$RETRY_INTERVAL"
-                done
-
-                # Re-determine which works
-                if wget -q -T 5 -O /dev/null "$MINIO_SVC/minio/health/live" 2>/dev/null; then
-                  ENDPOINT="$MINIO_SVC"
-                else
-                  ENDPOINT="$MINIO_POD"
+              until mc alias set local http://minio.minio.svc.cluster.local:9000 \
+                "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD"; do
+                COUNT=$((COUNT + 1))
+                if [ "$COUNT" -ge "$MAX_RETRIES" ]; then
+                  echo "[minio-init] ERROR: Could not connect after $MAX_RETRIES attempts."
+                  exit 1
                 fi
-              fi
+                echo "[minio-init] Attempt $COUNT/$MAX_RETRIES failed, retrying in ${RETRY_INTERVAL}s..."
+                sleep "$RETRY_INTERVAL"
+              done
 
-              echo "[minio-init] MinIO is healthy at: $ENDPOINT"
-
-              echo "[minio-init] Configuring mc alias..."
-              mc alias set local "$ENDPOINT" "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD"
+              echo "[minio-init] Connected to MinIO!"
 
               echo "[minio-init] Creating bucket 'books'..."
               mc mb --ignore-existing local/books
