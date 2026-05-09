@@ -1,12 +1,4 @@
 # StatefulSet for MinIO
-#
-# MinIO dijalankan sebagai StatefulSet (bukan Deployment) karena:
-# - Stateful storage — data harus tetap ada saat pod restart
-# - Init container menggantikan container `minio-init` di Docker Compose
-#   yang membuat bucket 'books' dengan public access
-#
-# Init container berjalan sekali sebelum MinIO main container start.
-# Jika bucket sudah ada, mc mb --ignore-existing akan skip tanpa error.
 
 apiVersion: apps/v1
 kind: StatefulSet
@@ -18,8 +10,8 @@ metadata:
     app.kubernetes.io/component: object-storage
     app.kubernetes.io/version:   "latest"
 spec:
-  serviceName: minio-headless   # headless service untuk StatefulSet DNS
-  replicas: 1                   # Single-node MinIO (tidak distributed)
+  serviceName: minio-headless
+  replicas: 1
   selector:
     matchLabels:
       app: minio
@@ -42,22 +34,17 @@ spec:
       terminationGracePeriodSeconds: 30
       imagePullSecrets:
         - name: harbor-secret
-
-      # ── Init Container — membuat bucket 'books' (setara minio-init di Docker Compose) ──
       initContainers:
         - name: minio-init
           image: quay.io/minio/mc:latest
           imagePullPolicy: IfNotPresent
           securityContext:
             allowPrivilegeEscalation: false
-            readOnlyRootFilesystem:   false  # mc butuh write ke /tmp
+            readOnlyRootFilesystem:   false
             runAsNonRoot:             true
             runAsUser:                1000
             capabilities:
               drop: ["ALL"]
-          # mc perlu akses ke endpoint MinIO utama — menunggu sampai MinIO siap
-          # Namun di init container, MinIO utama belum jalan.
-          # Solusi: gunakan script retry dengan loop sampai MinIO ready.
           command:
             - sh
             - -c
@@ -90,8 +77,6 @@ spec:
             limits:
               cpu:    "200m"
               memory: "256Mi"
-
-      # ── Main Container — MinIO server ─────────────────────────────────────────
       containers:
         - name: minio
           image: quay.io/minio/minio:latest
@@ -110,7 +95,7 @@ spec:
               protocol:      TCP
           securityContext:
             allowPrivilegeEscalation: false
-            readOnlyRootFilesystem:   false  # MinIO butuh write ke /data dan temp dirs
+            readOnlyRootFilesystem:   false
             runAsNonRoot:             true
             runAsUser:                1000
             capabilities:
@@ -132,7 +117,7 @@ spec:
               port: s3-api
             initialDelaySeconds: 10
             periodSeconds:       5
-            failureThreshold:    12   # 12 × 5s = 60s max startup
+            failureThreshold:    12
             timeoutSeconds:      3
           livenessProbe:
             httpGet:
@@ -160,7 +145,7 @@ spec:
               memory: "1Gi"
           volumeMounts:
             - name:      minio-data
-              mountPath: /data   # Data bucket MinIO
+              mountPath: /data
             - name:      tmp
               mountPath: /tmp
       volumes:

@@ -1,10 +1,9 @@
 # Services for MinIO
-#
+
 # 1. Headless Service — digunakan oleh StatefulSet untuk DNS discovery
 # 2. ClusterIP Service — untuk akses S3 API dari dalam cluster (book-service)
 # 3. NodePort Service — untuk akses MinIO Console dari luar cluster (admin UI)
 
-# ── 1. Headless Service (untuk StatefulSet DNS) ───────────────────────────────
 apiVersion: v1
 kind: Service
 metadata:
@@ -14,7 +13,7 @@ metadata:
     app.kubernetes.io/name:      minio
     app.kubernetes.io/component: headless-service
 spec:
-  clusterIP: None   # Headless — tidak ada VIP, langsung ke pod IP
+  clusterIP: None
   selector:
     app: minio
   ports:
@@ -25,8 +24,6 @@ spec:
 
 ---
 
-# ── 2. ClusterIP Service — S3 API (digunakan book-service via DNS) ────────────
-# book-service mengakses MinIO dengan:
 #   S3_ENDPOINT: http://minio.minio.svc.cluster.local:9000
 apiVersion: v1
 kind: Service
@@ -48,7 +45,6 @@ spec:
 
 ---
 
-# ── 3. NodePort Service — MinIO Console (akses admin dari luar cluster) ───────
 # Akses MinIO Web Console: http://<node-ip>:30901
 apiVersion: v1
 kind: Service
@@ -67,4 +63,4 @@ spec:
       port:       9001
       targetPort: console
       protocol:   TCP
-      nodePort:   30901   # Akses MinIO Console: http://<node-ip>:30901
+      nodePort:   30901

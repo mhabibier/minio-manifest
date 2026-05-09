@@ -1,5 +1,4 @@
 # PersistentVolumeClaim for MinIO data
-# Setara dengan volume `minio_data:/data` di Docker Compose.
 
 apiVersion: v1
 kind: PersistentVolumeClaim
@@ -11,9 +10,8 @@ metadata:
     app.kubernetes.io/component: storage
 spec:
   accessModes:
-    - ReadWriteOnce   # MinIO single-node: hanya 1 pod yang mount volume ini
+    - ReadWriteOnce
   resources:
     requests:
-      storage: 10Gi   # Sesuaikan kapasitas dengan kebutuhan
-  # storageClassName: ""  # Uncomment dan isi jika perlu storage class spesifik
-  #                       # Kosongkan untuk menggunakan default StorageClass cluster
+      storage: 10Gi
+  storageClassName: "ceph-rbd-sc"
