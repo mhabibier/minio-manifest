@@ -66,13 +66,6 @@ spec:
               echo "[minio-init] Setting public read access on bucket 'books'..."
               mc anonymous set public local/books
 
-              echo "[minio-init] Setting CORS policy on bucket 'books'..."
-              # mc cors set memerlukan format XML S3-compatible (bukan JSON)
-              printf '%s' '<?xml version="1.0" encoding="UTF-8"?><CORSConfiguration xmlns="http://s3.amazonaws.com/doc/2006-03-01/"><CORSRule><AllowedOrigin>https://app.sxdentrypoint.my.id</AllowedOrigin><AllowedOrigin>https://dash.sxdentrypoint.my.id</AllowedOrigin><AllowedMethod>GET</AllowedMethod><AllowedMethod>HEAD</AllowedMethod><AllowedHeader>*</AllowedHeader><MaxAgeSeconds>86400</MaxAgeSeconds></CORSRule></CORSConfiguration>' > /tmp/cors.xml
-              mc cors set local/books /tmp/cors.xml && \
-                echo "[minio-init] CORS policy set successfully" || \
-                echo "[minio-init] WARN: mc cors set failed, skipping"
-
               echo "[minio-init] Done. Bucket 'books' is ready."
           env:
             - name: MC_CONFIG_DIR
